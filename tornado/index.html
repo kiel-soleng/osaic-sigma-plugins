@@ -35,21 +35,23 @@
 (function () {
   'use strict';
 
+  // unit: how the driver setting is labelled at each bar end
   var DRIVERS = [
-    { key: 'rev',  label: 'Revenue growth',      swing: '\u00b12 pts' },
-    { key: 'hc',   label: 'Headcount growth',    swing: '\u00b12 pts' },
-    { key: 'inf',  label: 'Comp inflation',      swing: '\u00b12 pts' },
-    { key: 'tech', label: 'Tech spend growth',   swing: '\u00b12 pts' },
-    { key: 'mkt',  label: 'Market move',         swing: '\u00b110 pts' },
-    { key: 'sens', label: 'Market sensitivity',  swing: '\u00b10.2' }
+    { key: 'rev',  label: 'Revenue growth',      swing: '\u22123 / +1 pts',  unit: '%' },
+    { key: 'hc',   label: 'Headcount growth',    swing: '\u22121 / +2 pts',  unit: '%' },
+    { key: 'inf',  label: 'Comp inflation',      swing: '\u22121 / +3 pts',  unit: '%' },
+    { key: 'tech', label: 'Tech spend growth',   swing: '\u22123 / +3 pts',  unit: '%' },
+    { key: 'mkt',  label: 'Market move',         swing: '\u221220 / +10 pts', unit: '%' },
+    { key: 'sens', label: 'Market sensitivity',  swing: '\u00b10.25',       unit: 'x' }
   ];
   var COLORS = { down: '#F8614B', up: '#15535E', base: '#7FA61C', grid: '#E5E7EB', muted: '#6b7280' };
 
   // Generic demo literals for standalone preview only.
   function synth() {
     return { base: 200e6, title: 'FY2027 EBITDA sensitivity (preview data)', vals: {
-      rev: [191e6, 209e6], hc: [203e6, 197e6], inf: [204e6, 196e6],
-      tech: [201e6, 199e6], mkt: [197e6, 203e6], sens: [199e6, 201e6] } };
+      rev: [185e6, 206e6], hc: [206e6, 192e6], inf: [204e6, 189e6],
+      tech: [202e6, 198e6], mkt: [160e6, 220e6], sens: [205e6, 195e6] },
+      settings: { rev: [2, 6], hc: [1.5, 4.5], inf: [4, 8], tech: [4.5, 10.5], mkt: [-25, 5], sens: [0.5, 1] } };
   }
 
   function money(n) {
@@ -58,6 +60,11 @@
     if (a >= 1e6) return s + '$' + (a / 1e6).toFixed(1) + 'M';
     if (a >= 1e3) return s + '$' + (a / 1e3).toFixed(0) + 'K';
     return s + '$' + a.toFixed(0);
+  }
+  function setting(v, unit) {
+    if (v === null || v === undefined || !isFinite(v)) return '';
+    if (unit === 'x') return Number(v).toFixed(2) + 'x';
+    return (Math.round(Number(v) * 10) / 10).toFixed(1) + '%';
   }
   function esc(t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
@@ -74,7 +81,8 @@
 
     var rows = DRIVERS.map(function (d) {
       var lo = model.vals[d.key][0], hi = model.vals[d.key][1];
-      return { label: d.label, swing: d.swing, lo: lo, hi: hi,
+      var st = (model.settings && model.settings[d.key]) || [null, null];
+      return { label: d.label, swing: d.swing, lo: lo, hi: hi, unit: d.unit, slo: st[0], shi: st[1],
         dlo: lo - model.base, dhi: hi - model.base,
         range: Math.abs(hi - lo) };
     }).sort(function (a, b) { return b.range - a.range; });
@@ -82,7 +90,7 @@
     var fs = Math.max(10, Math.min(14, w / 60));
     var titleH = fs * 2.6, footH = fs * 2.2;
     var labelW = Math.min(w * 0.30, fs * 15);
-    var valPad = fs * 4.2;
+    var valPad = fs * 10.5;
     var left = labelW + valPad, right = w - valPad;
     var top = titleH, bottom = h - footH;
     var rowH = (bottom - top) / rows.length;
@@ -97,21 +105,25 @@
     out.push('<text x="0" y="' + (fs * 1.3) + '" font-size="' + (fs * 1.15) + '" font-weight="600" fill="#15535E">' +
       esc(model.title || 'FY2027 EBITDA sensitivity by driver') + '</text>');
     out.push('<text x="0" y="' + (fs * 2.35) + '" font-size="' + (fs * 0.85) + '" fill="' + COLORS.muted + '">' +
-      'Each bar moves one driver from its current slider value; all others held constant. Center = current scenario ' + esc(money(model.base)) + '</text>');
+      'Each bar moves one driver (low / high range shown by its name) from its current slider value; all others held constant. Center line = current scenario ' + esc(money(model.base)) + '</text>');
 
     rows.forEach(function (r, i) {
       var y = top + i * rowH + (rowH - barH) / 2;
       var mid = y + barH / 2 + fs * 0.35;
       out.push('<text x="0" y="' + mid + '" font-size="' + fs + '" fill="#15535E">' + esc(r.label) +
         ' <tspan fill="' + COLORS.muted + '" font-size="' + (fs * 0.8) + '">' + esc(r.swing) + '</tspan></text>');
-      [[r.dlo, 'Low'], [r.dhi, 'High']].forEach(function (p) {
+      [[r.dlo, 'Low', r.slo], [r.dhi, 'High', r.shi]].forEach(function (p) {
         var d = p[0];
+        var sv = setting(p[2], r.unit);
         var x0 = Math.min(cx, xOf(d)), x1 = Math.max(cx, xOf(d));
         var color = d < 0 ? COLORS.down : COLORS.up;
         out.push('<rect x="' + x0 + '" y="' + y + '" width="' + Math.max(1, x1 - x0) + '" height="' + barH +
-          '" rx="3" fill="' + color + '"><title>' + esc(r.label + ' ' + p[1] + ': ' + money(model.base + d) + ' (' + (d >= 0 ? '+' : '') + money(d) + ')') + '</title></rect>');
+          '" rx="3" fill="' + color + '"><title>' + esc(r.label + ' ' + p[1] + (sv ? ' (' + sv + ')' : '') + ': ' + money(model.base + d) + ' (' + (d >= 0 ? '+' : '') + money(d) + ')') + '</title></rect>');
         var lx = d < 0 ? x0 - 4 : x1 + 4;
-        out.push('<text x="' + lx + '" y="' + mid + '" font-size="' + (fs * 0.85) + '" text-anchor="' + (d < 0 ? 'end' : 'start') +
+        var anchor = d < 0 ? 'end' : 'start';
+        out.push('<text x="' + lx + '" y="' + (mid - fs * 0.45) + '" font-size="' + (fs * 0.85) + '" text-anchor="' + anchor +
+          '" fill="#15535E" font-weight="600">' + (sv ? esc(sv) + ' \u2192 ' : '') + esc(money(model.base + d)) + '</text>');
+        out.push('<text x="' + lx + '" y="' + (mid + fs * 0.55) + '" font-size="' + (fs * 0.78) + '" text-anchor="' + anchor +
           '" fill="' + COLORS.muted + '">' + (d >= 0 ? '+' : '') + esc(money(d)) + '</text>');
       });
     });
@@ -136,6 +148,7 @@
       panel.push({ name: d.key + '_lo', type: 'column', source: 'source', allowMultiple: false, label: d.label + ' Low' });
       panel.push({ name: d.key + '_hi', type: 'column', source: 'source', allowMultiple: false, label: d.label + ' High' });
     });
+    panel.push({ name: 'values', type: 'column', source: 'source', allowMultiple: false, label: 'Driver values (packed)' });
     panel.push({ name: 'title', type: 'text', label: 'Title' });
     client.config.configureEditorPanel(panel);
 
@@ -151,12 +164,16 @@
             for (var i = 0; i < arr.length; i++) { if (arr[i] !== null && arr[i] !== undefined) return Number(arr[i]); }
             return NaN;
           }
-          var m = { base: first(cfg.base), title: cfg.title || '', vals: {} };
+          var m = { base: first(cfg.base), title: cfg.title || '', vals: {}, settings: {} };
           var ok = isFinite(m.base);
-          DRIVERS.forEach(function (d) {
+          // packed text: rev_lo|rev_hi|hc_lo|hc_hi|inf_lo|inf_hi|tech_lo|tech_hi|mkt_lo|mkt_hi|sens_lo|sens_hi
+          var packed = null, parr = cfg.values && data[cfg.values];
+          if (parr) { for (var j = 0; j < parr.length; j++) { if (parr[j]) { packed = String(parr[j]).split('|').map(Number); break; } } }
+          DRIVERS.forEach(function (d, idx) {
             var lo = first(cfg[d.key + '_lo']), hi = first(cfg[d.key + '_hi']);
             if (!isFinite(lo) || !isFinite(hi)) ok = false;
             m.vals[d.key] = [lo, hi];
+            m.settings[d.key] = packed && packed.length >= 12 ? [packed[idx * 2], packed[idx * 2 + 1]] : [null, null];
           });
           render(ok ? m : synth());
         } catch (e) { render(synth()); }
