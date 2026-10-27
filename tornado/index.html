@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<!--
+  tornado/index.html: driver sensitivity tornado chart for the Osaic
+  Scenario Modeling page (Sigma custom plugin, vanilla JS).
+
+  All maths lives in the workbook (hidden element "Driver Sensitivity FY2027
+  (tornado source)"): each Low/High column is FY2027 EBITDA with ONE driver
+  moved and the rest at their current slider values. This file only draws.
+
+  Editor-panel contract:
+    source (element)          one-row element (collapsed grouping)
+    base (column)             current Custom FY27 EBITDA
+    rev_lo / rev_hi, hc_lo / hc_hi, inf_lo / inf_hi, tech_lo / tech_hi,
+    mkt_lo / mkt_hi, sens_lo / sens_hi (columns)
+    title (text)              optional heading
+-->
+<html>
+<head>
+<meta charset="utf-8">
+<title>Driver sensitivity (tornado)</title>
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+    background: #ffffff; font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #15535E; }
+  #root { box-sizing: border-box; width: 100%; height: 100%; position: relative; }
+  svg { display: block; }
+</style>
+</head>
+<body>
+<div id="root"><svg id="svg" xmlns="http://www.w3.org/2000/svg"></svg></div>
+
+<!-- React must load before the SDK UMD build, or `client` is never assigned. -->
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/@sigmacomputing/plugin@1.2.0/dist/umd/sigmacomputing-plugin.umd.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var DRIVERS = [
+    { key: 'rev',  label: 'Revenue growth',      swing: '\u00b12 pts' },
+    { key: 'hc',   label: 'Headcount growth',    swing: '\u00b12 pts' },
+    { key: 'inf',  label: 'Comp inflation',      swing: '\u00b12 pts' },
+    { key: 'tech', label: 'Tech spend growth',   swing: '\u00b12 pts' },
+    { key: 'mkt',  label: 'Market move',         swing: '\u00b110 pts' },
+    { key: 'sens', label: 'Market sensitivity',  swing: '\u00b10.2' }
+  ];
+  var COLORS = { down: '#F8614B', up: '#15535E', base: '#7FA61C', grid: '#E5E7EB', muted: '#6b7280' };
+
+  // Generic demo literals for standalone preview only.
+  function synth() {
+    return { base: 200e6, title: 'FY2027 EBITDA sensitivity (preview data)', vals: {
+      rev: [191e6, 209e6], hc: [203e6, 197e6], inf: [204e6, 196e6],
+      tech: [201e6, 199e6], mkt: [197e6, 203e6], sens: [199e6, 201e6] } };
+  }
+
+  function money(n) {
+    var a = Math.abs(n), s = n < 0 ? '-' : '';
+    if (a >= 1e9) return s + '$' + (a / 1e9).toFixed(2) + 'B';
+    if (a >= 1e6) return s + '$' + (a / 1e6).toFixed(1) + 'M';
+    if (a >= 1e3) return s + '$' + (a / 1e3).toFixed(0) + 'K';
+    return s + '$' + a.toFixed(0);
+  }
+  function esc(t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+  var last = synth();
+
+  function render(model) {
+    last = model;
+    var root = document.getElementById('root');
+    var svg = document.getElementById('svg');
+    var box = root.getBoundingClientRect();
+    var w = Math.max(280, box.width), h = Math.max(200, box.height);
+    svg.setAttribute('width', w); svg.setAttribute('height', h);
+    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+
+    var rows = DRIVERS.map(function (d) {
+      var lo = model.vals[d.key][0], hi = model.vals[d.key][1];
+      return { label: d.label, swing: d.swing, lo: lo, hi: hi,
+        dlo: lo - model.base, dhi: hi - model.base,
+        range: Math.abs(hi - lo) };
+    }).sort(function (a, b) { return b.range - a.range; });
+
+    var fs = Math.max(10, Math.min(14, w / 60));
+    var titleH = fs * 2.6, footH = fs * 2.2;
+    var labelW = Math.min(w * 0.30, fs * 15);
+    var valPad = fs * 4.2;
+    var left = labelW + valPad, right = w - valPad;
+    var top = titleH, bottom = h - footH;
+    var rowH = (bottom - top) / rows.length;
+    var barH = Math.max(6, rowH * 0.58);
+
+    var maxAbs = 1;
+    rows.forEach(function (r) { maxAbs = Math.max(maxAbs, Math.abs(r.dlo), Math.abs(r.dhi)); });
+    var cx = (left + right) / 2, half = (right - left) / 2;
+    function xOf(delta) { return cx + (delta / maxAbs) * half; }
+
+    var out = [];
+    out.push('<text x="0" y="' + (fs * 1.3) + '" font-size="' + (fs * 1.15) + '" font-weight="600" fill="#15535E">' +
+      esc(model.title || 'FY2027 EBITDA sensitivity by driver') + '</text>');
+    out.push('<text x="0" y="' + (fs * 2.35) + '" font-size="' + (fs * 0.85) + '" fill="' + COLORS.muted + '">' +
+      'Each bar moves one driver from its current slider value; all others held constant. Center = current scenario ' + esc(money(model.base)) + '</text>');
+
+    rows.forEach(function (r, i) {
+      var y = top + i * rowH + (rowH - barH) / 2;
+      var mid = y + barH / 2 + fs * 0.35;
+      out.push('<text x="0" y="' + mid + '" font-size="' + fs + '" fill="#15535E">' + esc(r.label) +
+        ' <tspan fill="' + COLORS.muted + '" font-size="' + (fs * 0.8) + '">' + esc(r.swing) + '</tspan></text>');
+      [[r.dlo, 'Low'], [r.dhi, 'High']].forEach(function (p) {
+        var d = p[0];
+        var x0 = Math.min(cx, xOf(d)), x1 = Math.max(cx, xOf(d));
+        var color = d < 0 ? COLORS.down : COLORS.up;
+        out.push('<rect x="' + x0 + '" y="' + y + '" width="' + Math.max(1, x1 - x0) + '" height="' + barH +
+          '" rx="3" fill="' + color + '"><title>' + esc(r.label + ' ' + p[1] + ': ' + money(model.base + d) + ' (' + (d >= 0 ? '+' : '') + money(d) + ')') + '</title></rect>');
+        var lx = d < 0 ? x0 - 4 : x1 + 4;
+        out.push('<text x="' + lx + '" y="' + mid + '" font-size="' + (fs * 0.85) + '" text-anchor="' + (d < 0 ? 'end' : 'start') +
+          '" fill="' + COLORS.muted + '">' + (d >= 0 ? '+' : '') + esc(money(d)) + '</text>');
+      });
+    });
+
+    out.push('<line x1="' + cx + '" x2="' + cx + '" y1="' + (top - 2) + '" y2="' + bottom + '" stroke="' + COLORS.base + '" stroke-width="2"/>');
+    var ly = h - fs * 0.6;
+    out.push('<rect x="0" y="' + (ly - fs * 0.8) + '" width="' + fs + '" height="' + (fs * 0.8) + '" fill="' + COLORS.down + '"/>' +
+      '<text x="' + (fs * 1.4) + '" y="' + ly + '" font-size="' + (fs * 0.85) + '" fill="' + COLORS.muted + '">Lowers EBITDA</text>' +
+      '<rect x="' + (fs * 9) + '" y="' + (ly - fs * 0.8) + '" width="' + fs + '" height="' + (fs * 0.8) + '" fill="' + COLORS.up + '"/>' +
+      '<text x="' + (fs * 10.4) + '" y="' + ly + '" font-size="' + (fs * 0.85) + '" fill="' + COLORS.muted + '">Raises EBITDA</text>');
+
+    svg.innerHTML = out.join('');
+  }
+
+  render(last);
+
+  var client = (window.SigmaPlugin && window.SigmaPlugin.client) || null;
+  if (client) {
+    var panel = [{ name: 'source', type: 'element' },
+      { name: 'base', type: 'column', source: 'source', allowMultiple: false, label: 'Current scenario (base)' }];
+    DRIVERS.forEach(function (d) {
+      panel.push({ name: d.key + '_lo', type: 'column', source: 'source', allowMultiple: false, label: d.label + ' Low' });
+      panel.push({ name: d.key + '_hi', type: 'column', source: 'source', allowMultiple: false, label: d.label + ' High' });
+    });
+    panel.push({ name: 'title', type: 'text', label: 'Title' });
+    client.config.configureEditorPanel(panel);
+
+    var unsub = null;
+    client.config.subscribe(function (cfg) {
+      if (unsub) { unsub(); unsub = null; }
+      if (!cfg || !cfg.source) { render(synth()); return; }
+      unsub = client.elements.subscribeToElementData(cfg.source, function (data) {
+        try {
+          function first(col) {
+            var arr = col && data[col];
+            if (!arr || !arr.length) return NaN;
+            for (var i = 0; i < arr.length; i++) { if (arr[i] !== null && arr[i] !== undefined) return Number(arr[i]); }
+            return NaN;
+          }
+          var m = { base: first(cfg.base), title: cfg.title || '', vals: {} };
+          var ok = isFinite(m.base);
+          DRIVERS.forEach(function (d) {
+            var lo = first(cfg[d.key + '_lo']), hi = first(cfg[d.key + '_hi']);
+            if (!isFinite(lo) || !isFinite(hi)) ok = false;
+            m.vals[d.key] = [lo, hi];
+          });
+          render(ok ? m : synth());
+        } catch (e) { render(synth()); }
+      });
+    });
+  }
+
+  new ResizeObserver(function () { render(last); }).observe(document.getElementById('root'));
+})();
+</script>
+</body>
+</html>
